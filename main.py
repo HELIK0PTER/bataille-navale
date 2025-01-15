@@ -76,15 +76,19 @@ class BattleshipGame:
         self.root.configure(bg='white')
 
         # Frame pour la difficulté
-        difficulty_frame = tk.Frame(self.root, bg='white')
-        difficulty_frame.pack(pady=5)
+        self.top_frame = tk.Frame(self.root, bg='white')  # Renommé pour être accessible
+        self.top_frame.pack(pady=5)
 
-        tk.Label(difficulty_frame, text="Difficulté : ", bg='white').pack(side=tk.LEFT)
+        tk.Label(self.top_frame, text="Difficulté : ", bg='white').pack(side=tk.LEFT)
         self.difficulty_var = tk.StringVar(value="facile")
-        tk.Radiobutton(difficulty_frame, text="Facile", variable=self.difficulty_var,
-                       value="facile", command=self.change_difficulty, bg='white').pack(side=tk.LEFT)
-        tk.Radiobutton(difficulty_frame, text="Difficile", variable=self.difficulty_var,
-                       value="difficile", command=self.change_difficulty, bg='white').pack(side=tk.LEFT)
+        tk.Radiobutton(self.top_frame, text="Facile", variable=self.difficulty_var,
+                    value="facile", command=self.change_difficulty, bg='white').pack(side=tk.LEFT)
+        tk.Radiobutton(self.top_frame, text="Difficile", variable=self.difficulty_var,
+                    value="difficile", command=self.change_difficulty, bg='white').pack(side=tk.LEFT)
+                    
+        # Bouton commencer (caché au début)
+        self.start_button = tk.Button(self.top_frame, text="Commencer", command=self.start_game)
+        # Ne pas le packer tout de suite
 
         # Frame pour les grilles
         grids_frame = tk.Frame(self.root, bg='white')
@@ -128,25 +132,65 @@ class BattleshipGame:
         self.computer_frame.pack()
 
         # Configuration des grilles
+        self.player_buttons = []
+        self.computer_buttons = []
         for i in range(10):
+            player_row = []
+            computer_row = []
             for j in range(10):
+                # Boutons joueur
                 btn = tk.Button(self.player_frame, width=3, height=1, relief="groove", bg='light blue',
                                 command=lambda x=i, y=j: self.handle_player_click(x, y))
+                # Ajout des événements de survol
+                btn.bind('<Enter>', lambda e, x=i, y=j: self.handle_mouse_enter(x, y))
+                btn.bind('<Leave>', lambda e, x=i, y=j: self.handle_mouse_leave(x, y))
                 btn.grid(row=i, column=j, sticky="nsew")
-                if not hasattr(self, 'player_buttons'):
-                    self.player_buttons = []
-                if len(self.player_buttons) <= i:
-                    self.player_buttons.append([])
-                self.player_buttons[i].append(btn)
+                player_row.append(btn)
 
+                # Boutons ordinateur
                 btn = tk.Button(self.computer_frame, width=3, height=1, relief="groove", bg='light blue',
                                 command=lambda x=i, y=j: self.handle_computer_click(x, y))
                 btn.grid(row=i, column=j, sticky="nsew")
-                if not hasattr(self, 'computer_buttons'):
-                    self.computer_buttons = []
-                if len(self.computer_buttons) <= i:
-                    self.computer_buttons.append([])
-                self.computer_buttons[i].append(btn)
+                computer_row.append(btn)
+
+            self.player_buttons.append(player_row)
+            self.computer_buttons.append(computer_row)
+
+    def handle_mouse_enter(self, x, y):
+        if not self.game_started and self.ships_to_place:
+            ship_size = self.ships_to_place[0][0]
+            positions = self.get_ship_positions(x, y, ship_size, self.horizontal_placement)
+            if positions:  # Si le placement est possible
+                for pos_x, pos_y in positions:
+                    self.player_buttons[pos_x][pos_y].configure(bg='light green')
+
+    def handle_mouse_leave(self, x, y):
+        if not self.game_started and self.ships_to_place:
+            ship_size = self.ships_to_place[0][0]
+            positions = self.get_ship_positions(x, y, ship_size, self.horizontal_placement)
+            if positions:
+                for pos_x, pos_y in positions:
+                    # Ne remet en bleu que si la case n'est pas déjà occupée
+                    if self.player_board.grid[pos_x][pos_y] == 0:
+                        self.player_buttons[pos_x][pos_y].configure(bg='light blue')
+
+    def get_ship_positions(self, x, y, size, horizontal):
+        positions = []
+        if horizontal:
+            if y + size > 10:  # Hors limites
+                return None
+            # Vérifie si toutes les cases sont libres
+            if not all(self.player_board.grid[x][y+i] == 0 for i in range(size)):
+                return None
+            positions = [(x, y+i) for i in range(size)]
+        else:
+            if x + size > 10:  # Hors limites
+                return None
+            # Vérifie si toutes les cases sont libres
+            if not all(self.player_board.grid[x+i][y] == 0 for i in range(size)):
+                return None
+            positions = [(x+i, y) for i in range(size)]
+        return positions
 
     def toggle_orientation(self):
         self.horizontal_placement = not self.horizontal_placement
@@ -176,7 +220,8 @@ class BattleshipGame:
                 self.ships_to_place.pop(0)
 
             if not self.ships_to_place:
-                self.start_game()
+                self.start_button.pack(side=tk.LEFT, padx=20)  # Afficher le bouton
+                self.instruction_label.configure(text="Cliquez sur 'Commencer' pour démarrer la partie")
 
     def place_computer_ships(self):
         ships_to_place = [(5, 1), (4, 1), (3, 2), (2, 2)]
@@ -321,44 +366,55 @@ class BattleshipGame:
         computer_turn()
 
     def get_next_target(self):
-        # Si on n'a pas de point de départ, chercher une case rouge non coulée
+        # Si on n'a pas de point de départ, chercher une case rouge non coulée avec cases adjacentes libres
         if not self.first_hit:
+            available_red_cells = []
             for i in range(10):
                 for j in range(10):
                     if self.player_buttons[i][j].cget('bg') == 'red':
-                        self.first_hit = (i, j)
-                        self.last_hit = (i, j)
-                        self.current_direction = self.choose_initial_direction(i, j)
-                        self.tried_directions = []
-                        break
-                if self.first_hit:
-                    break
+                        # Vérifier si cette case a des cases adjacentes libres
+                        for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                            new_x, new_y = i + dx, j + dy
+                            if (0 <= new_x < 10 and 0 <= new_y < 10 and 
+                                self.player_board.grid[new_x][new_y] not in [2, 3]):
+                                available_red_cells.append((i, j))
+                                break
+            
+            # Si on trouve des cases rouges avec des cases adjacentes libres
+            if available_red_cells:
+                x, y = random.choice(available_red_cells)
+                self.first_hit = (x, y)
+                self.last_hit = (x, y)
+                self.current_direction = self.choose_initial_direction(x, y)
+                self.tried_directions = []
+                return self.get_next_target()
 
+        # Si pas de case rouge libre ou si on a déjà un point de départ
         if not self.first_hit:
             return random.randint(0, 9), random.randint(0, 9)
 
-        if not self.current_direction:
-            self.current_direction = self.choose_initial_direction(*self.first_hit)
-
         x, y = self.last_hit
-        if self.current_direction == 'N':
-            dx, dy = 0, -1
-        elif self.current_direction == 'S':
-            dx, dy = 0, 1
-        elif self.current_direction == 'E':
-            dx, dy = 1, 0
-        else:
-            dx, dy = -1, 0  # 'W'
+        for _ in range(4):  # Maximum 4 essais (4 directions possibles)
+            if not self.current_direction:
+                self.current_direction = self.choose_initial_direction(x, y)
+                
+            if self.current_direction == 'N': dx, dy = 0, -1
+            elif self.current_direction == 'S': dx, dy = 0, 1
+            elif self.current_direction == 'E': dx, dy = 1, 0
+            else: dx, dy = -1, 0  # 'W'
 
-        new_x, new_y = x + dx, y + dy
+            new_x, new_y = x + dx, y + dy
 
-        # Si la nouvelle position est invalide ou déjà touchée
-        if not (0 <= new_x < 10 and 0 <= new_y < 10) or \
-                self.player_board.grid[new_x][new_y] in [2, 3]:
+            # Si la nouvelle position est valide
+            if (0 <= new_x < 10 and 0 <= new_y < 10 and 
+                self.player_board.grid[new_x][new_y] not in [2, 3]):
+                return new_x, new_y
+                
+            # Si position invalide, changer de direction
             self.change_direction()
-            return self.get_next_target()
-
-        return new_x, new_y
+            
+        # Si aucune direction n'a fonctionné, tir aléatoire
+        return random.randint(0, 9), random.randint(0, 9)
 
     def change_direction(self):
         opposites = {'N': 'S', 'S': 'N', 'E': 'W', 'W': 'E'}
@@ -417,6 +473,7 @@ class BattleshipGame:
         self.game_started = True
         self.instruction_label.configure(text="C'est parti! Cliquez sur la grille de droite pour tirer")
         self.orientation_btn.pack_forget()
+        self.start_button.pack_forget()  # Cacher le bouton une fois la partie commencée
 
 
     # fonctions de déboggage
