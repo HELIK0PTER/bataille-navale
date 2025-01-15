@@ -1,0 +1,11 @@
+# pycharm
+.idea
+
+# python env
+.venv
+# python cache files
+__pycache__
+*.pyc
+
+# personnal game config for local save (if not exist, the game will create it from .default-config)
+.config
